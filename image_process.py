@@ -14,74 +14,9 @@ from sklearn.cross_validation import train_test_split
 from sklearn import datasets
 from sklearn.metrics import accuracy_score
 import os
+import time
 
-img_digit_list = []
-# for pic in os.listdir('E:/vip_png/'):
-# 灰度二值化处理
-img = cv2.imread('E:/vip_png/0.png')
-blur = cv2.blur(img, (4, 2))  # 验证码模糊
-img_gray = cv2.cvtColor(blur, cv2.COLOR_BGR2GRAY)  # 验证码灰度
-ret, img_twovalue = cv2.threshold(img_gray, thresh=191, maxval=255, type=cv2.THRESH_BINARY)  # 验证码二值化
-# img_digit_list.append(img_twovalue)
-print(len(img_twovalue))
-
-
-# 投影法分割字符
-def projection(image_digit):
-    white = []
-    black = []
-    height = image_digit.shape[0]
-    width = image_digit.shape[1]
-    print(height, width)
-    white_max = 0
-    black_max = 0
-
-    # 统计每一列的黑白色像素总和
-    for i in range(width):
-        s = 0  # 列白色总和
-        t = 0  # 列黑色总和
-        for j in range(height):
-            if image_digit[j][i] == 255:
-                s += 1
-            if image_digit[j][i] == 0:
-                t += 1
-
-        white_max = max(white_max, s)
-        black_max = max(black_max, t)
-        white.append(s)
-        black.append(t)
-
-    arg = False  # False表示白底黑字；True表示黑底白字
-    if black_max > white_max:
-        arg = True
-
-    def find_end(start_):
-        end_ = start_ + 1
-        for m in range(start_ + 1, width - 1):
-            if (black[m] if arg else white[m]) > (0.90 * black_max if arg else 0.90 * white_max):
-                end_ = m
-                break
-        return end_
-
-    n = 1
-    start = 1
-    end = 2
-
-    while n < width - 2:
-        n += 1
-        if (white[n] if arg else black[n]) > (0.10 * white_max if arg else 0.10 * black_max):
-            # 上面这些判断用来辨别是白底黑字还是黑底白字
-            # 0.05这个参数请多调整，对应上面的0.95
-            start = n
-            end = find_end(start)
-            n = end
-            if end - start > 5:
-                cj = image_digit[1:height, start:end]
-                cv2.imshow('caijian', cj)
-                cv2.waitKey(0)
-
-
-class drop_fall(object):
+class DropFall(object):
     def __init__(self, image_digit):
         self.image_digit = image_digit
         self.height = image_digit.shape[0]
@@ -107,7 +42,7 @@ class drop_fall(object):
         :param hist_width:
         :return:
         '''
-        mid = len(hist_width)
+        mid = len(hist_width) // 2
         temp = hist_width[mid - 4:mid + 5]
         return mid - 4 + temp.index(min(temp))
 
@@ -250,10 +185,113 @@ class drop_fall(object):
         width = right - left + 1
         height = bottom - top + 1
 
+        for i in range(height):
+            start = starts[i]
+            end = filter_ends[i]
+            for x in range(start[0], end[0]+1):
+                if pixdata[x, start[1]] == 0:
+                    cj = pixdata((x - left, start[1] - top), (start, end))
+        return cj
 
-# projection(img_twovalue)
-plt.imshow(img_twovalue, 'gray')
-plt.show()
+    def __call__(self, *args, **kwargs):
+        hist_width = self.vertical()
+        start_x = self.get_start_x(hist_width)
+
+        start_route = []
+        for y in range(self.height):
+            start_route.append((0, y))
+        # print(start_route)
+
+        end_route = self.get_end_route(start_x, self.height)
+        print(end_route)
+
+
+def projection(image_digit, png, slice):
+    white = []
+    black = []
+    height = image_digit.shape[0]
+    width = image_digit.shape[1]
+    print(height, width)
+    white_max = 0
+    black_max = 0
+
+    # 统计每一列的黑白色像素总和
+    for i in range(width):
+        s = 0  # 列白色总和
+        t = 0  # 列黑色总和
+        for j in range(height):
+            if image_digit[j][i] == 255:
+                s += 1
+            if image_digit[j][i] == 0:
+                t += 1
+
+        white_max = max(white_max, s)
+        black_max = max(black_max, t)
+        white.append(s)
+        black.append(t)
+
+    arg = False  # False表示白底黑字；True表示黑底白字
+    if black_max > white_max:
+        arg = True
+
+    def find_end(start_):
+        end_ = start_ + 1
+        for m in range(start_ + 1, width - 1):
+            if (black[m] if arg else white[m]) > (0.90 * black_max if arg else 0.90 * white_max):
+                end_ = m
+                break
+        return end_
+
+    n = 1
+    start = 1
+    end = 2
+    while n < width - 2:
+        n += 1
+        if (white[n] if arg else black[n]) > (0.10 * white_max if arg else 0.10 * black_max):
+            # 上面这些判断用来辨别是白底黑字还是黑底白字
+            # 0.05这个参数请多调整，对应上面的0.95
+            start = n
+            end = find_end(start)
+            n = end
+            if end - start > 5:
+                cj = image_digit[1:height, start:end]
+                if cj.shape[1] > 20:
+                    d = DropFall(cj)
+                    d()
+                cv2.imwrite('e:/png_code_process/raw_png/cut_%s_%s_%s.png'% (png, slice, time.time()), cj)
+                slice += 1
+                # cv2.imshow('caijian', cj)
+                # cv2.waitKey(0)
+
+
+
+
+slice = 0
+png = 0
+img_digit_list = []
+for pic in os.listdir('E:/vip_png/'):
+# 灰度二值化处理
+    img = cv2.imread('E:/vip_png/'+pic)
+    blur = cv2.blur(img, (5, 4))  # 验证码模糊
+    img_gray = cv2.cvtColor(blur, cv2.COLOR_BGR2GRAY)  # 验证码灰度
+    ret, img_twovalue = cv2.threshold(img_gray, thresh=210, maxval=255, type=cv2.THRESH_BINARY)  # 验证码二值化
+
+    projection(img_twovalue, png, slice)
+    png += 1
+    # dropf = DropFall(img_twovalue)
+    # dropf()
+    # plt.imshow(img_twovalue, 'gray')
+    # plt.show()
+# img_digit_list.append(img_twovalue)
+# print(len(img_twovalue))
+
+
+# 投影法分割字符
+
+
+
+
+
 
 # https://www.jb51.net/article/141461.htm
 
