@@ -10,11 +10,12 @@ import cv2
 
 from matplotlib import pyplot as plt
 from sklearn.linear_model import LogisticRegression
-from sklearn.cross_validation import train_test_split
 from sklearn import datasets
 from sklearn.metrics import accuracy_score
 import os
 import time
+from itertools import groupby
+import numpy as np
 
 class DropFall(object):
     def __init__(self, image_digit):
@@ -46,7 +47,7 @@ class DropFall(object):
         temp = hist_width[mid - 4:mid + 5]
         return mid - 4 + temp.index(min(temp))
 
-    def get_nearby_pix_value(self, x, y, j):
+    def get_nearby_pix_value(self, x, y, j, height, width):
         '''
         获取临近5个点的像素数据
         :param x:
@@ -54,16 +55,19 @@ class DropFall(object):
         :param j:
         :return:
         '''
+
+        if (x - 1 < 0) or (x + 1 > width - 1) or (y + 1 > height - 1):
+            return 0
         if j == 1:
-            return 0 if self.image_digit[x - 1][y + 1] == 0 else 1
+            return 0 if self.image_digit[y + 1][x - 1] == 0 else 1
         elif j == 2:
-            return 0 if self.image_digit[x][y + 1] == 0 else 1
+            return 0 if self.image_digit[y + 1][x] == 0 else 1
         elif j == 3:
-            return 0 if self.image_digit[x + 1][y + 1] == 0 else 1
+            return 0 if self.image_digit[y + 1][x + 1] == 0 else 1
         elif j == 4:
-            return 0 if self.image_digit[x + 1][y] == 0 else 1
+            return 0 if self.image_digit[y][x + 1] == 0 else 1
         elif j == 5:
-            return 0 if self.image_digit[x - 1][y] == 0 else 1
+            return 0 if self.image_digit[y][x - 1] == 0 else 1
         else:
             raise Exception("get_nearby_pix_vallule error")
 
@@ -77,76 +81,68 @@ class DropFall(object):
         left_limit = 0
         right_limit = self.width - 1
         end_route = []
-        cur_p = (start_x, 0)
-        last_p = cur_p
+        cur_p = [start_x, 0]
+        last_p = [start_x, 0]
+        next_p = [0, 0]
         end_route.append(cur_p)
 
         while cur_p[1] < (height - 1):
             sum_n = 0
             max_w = 0
-            next_x = cur_p[0]
-            next_y = cur_p[1]
+
             for i in range(1, 6):
-                cur_w = self.get_nearby_pix_value(cur_p[0], cur_p[1], i) * (6 - i)
+                cur_w = self.get_nearby_pix_value(cur_p[0], cur_p[1], i, self.height, self.width) * (6 - i)
                 sum_n += cur_w
                 if max_w < cur_w:
                     max_w = cur_w
-            if sum_n == 0:
-                # 全黑
-                max_w = 4
-            if sum_n == 15:
-                # 全白
-                max_w = 6
 
-            if max_w == 1:
-                next_x = cur_p[0] - 1
-                next_y = cur_p[1]
-            elif max_w == 2:
-                next_x = cur_p[0] + 1
-                next_y = cur_p[1]
-            elif max_w == 3:
-                next_x = cur_p[0] + 1
-                next_y = cur_p[1] + 1
-            elif max_w == 5:
-                next_x = cur_p[0] - 1
-                next_y = cur_p[1] + 1
-            elif max_w == 6:
-                next_x = cur_p[0]
-                next_y = cur_p[1] + 1
-            elif max_w == 4:
-                if next_x > cur_p[0]:
-                    # 向右
-                    next_x = cur_p[0] + 1
-                    next_y = cur_p[1] + 1
-                if next_x < cur_p[0]:
-                    next_x = cur_p[0]
-                    next_y = cur_p[1] + 1
-                if sum_n == 0:
-                    next_x = cur_p[0]
-                    next_y = cur_p[1] + 1
-            else:
-                raise Exception("get end route error")
+            if sum_n == 0 or sum_n == 15:
+                # 全白 or 全黑  往下惯性移动
+                max_w = 0
+                next_p[0] = cur_p[0]
+                next_p[1] = cur_p[1] + 1
 
-            if last_p[0] == next_x and last_p[1] == next_y:
-                if next_x < cur_p[0]:
+            if max_w == 1:  # 左移
+                if cur_p[0] - 1 < left_limit:
+                    next_p[0] = left_limit
+                else:
+                    next_p[0] = cur_p[0] - 1
+                next_p[1] = cur_p[1]
+
+            elif max_w == 2:  # 右移
+                if cur_p[0] + 1 > right_limit:
+                    next_p[0] = right_limit
+                else:
+                    next_p[0] = cur_p[0] + 1
+                next_p[1] = cur_p[1]
+
+            elif max_w == 3:  # 右上移
+                if cur_p[0] + 1 > right_limit:
+                    next_p[0] = right_limit
+                else:
+                    next_p[0] = cur_p[0] + 1
+                next_p[1] = cur_p[1] + 1
+            elif max_w == 5:  # 左上移
+                if cur_p[0] - 1 < left_limit:
+                    next_p[0] = left_limit
+                else:
+                    next_p[0] = cur_p[0] - 1
+                next_p[1] = cur_p[1] + 1
+            # else:
+            #     raise Exception("get end route error")
+
+            if last_p[0] == next_p[0] and last_p[1] == next_p[1]:
+                if next_p[0] < cur_p[0]:
                     max_w = 5
-                    next_x = cur_p[0] + 1
-                    next_y = cur_p[1] + 1
+                    next_p[0] = cur_p[0] + 1
+                    next_p[1] = cur_p[1] + 1
                 else:
                     max_w = 3
-                    next_x = cur_p[0] - 1
-                    next_y = cur_p[1] + 1
-                last_p = cur_p
+                    next_p[0] = cur_p[0] - 1
+                    next_p[1] = cur_p[1] + 1
 
-            if next_x > right_limit:
-                next_x = right_limit
-                next_y = cur_p[1] + 1
-
-            if next_x < left_limit:
-                next_x = left_limit
-                next_y = cur_p[1] + 1
-
-            cur_p = (next_x, next_y)
+            last_p = [cur_p[0], cur_p[1]]
+            cur_p = [next_p[0], next_p[1]]
             end_route.append(cur_p)
         return end_route
 
@@ -177,21 +173,38 @@ class DropFall(object):
         right = filter_ends[0][0]
         bottom = filter_ends[0][1]
         pixdata = self.image_digit
+        print(pixdata)
+        print(type(self.image_digit))
         for i in range(len(starts)):
             left = min(starts[i][0], left)
-            top = min(starts[i][0], top)
-            right = min(starts[i][0], right)
-            bottom = min(starts[i][0], bottom)
-        width = right - left + 1
-        height = bottom - top + 1
-
+            top = max(starts[i][1], top)
+            right = max(filter_ends[i][0], right)
+            bottom = min(filter_ends[i][1], bottom)
+        height = top + 1 - bottom
+        # print(self.image_digit)
+        print(right, height)
+        pic = []
+        pic_arr = np.empty(shape=[height, right])
         for i in range(height):
             start = starts[i]
             end = filter_ends[i]
-            for x in range(start[0], end[0]+1):
-                if pixdata[x, start[1]] == 0:
-                    cj = pixdata((x - left, start[1] - top), (start, end))
-        return cj
+            row = pixdata[i]
+            row = row[start[0]:end[0] + 1].tolist()
+            if len(row) < right:
+                for i in range(right - len(row)):
+                    row.append(255)
+            pic.append(row)
+
+            # for x in range(start[0], end[0]+1):
+            #     if pixdata[start[1]][x] == 0:
+            #         pic.append(pixdata[])
+                    # print(pixdata[start[1]][x])
+                    # np.ndarray(pixdata[start[1]][x])
+                    # print(x)
+            #         print(x)
+                    # print(pixdata)
+                    # cj = pixdata(x - left, start[1] - top), (start, end)
+        return pic_arr
 
     def __call__(self, *args, **kwargs):
         hist_width = self.vertical()
@@ -203,7 +216,11 @@ class DropFall(object):
         # print(start_route)
 
         end_route = self.get_end_route(start_x, self.height)
-        print(end_route)
+        filter_end_route = [max(list(k)) for _, k in groupby(end_route,lambda x:x[1])]  # 注意这里groupby
+        img = self.do_split(start_route, filter_end_route)
+        print(img)
+        cv2.imshow('img',img)
+        cv2.waitKey(0)
 
 
 def projection(image_digit, png, slice):
@@ -211,7 +228,7 @@ def projection(image_digit, png, slice):
     black = []
     height = image_digit.shape[0]
     width = image_digit.shape[1]
-    print(height, width)
+    # print(height, width)
     white_max = 0
     black_max = 0
 
@@ -256,9 +273,13 @@ def projection(image_digit, png, slice):
             if end - start > 5:
                 cj = image_digit[1:height, start:end]
                 if cj.shape[1] > 20:
+                    cv2.imshow('caijian', cj)
+                    cv2.waitKey(0)
                     d = DropFall(cj)
                     d()
-                cv2.imwrite('e:/png_code_process/raw_png/cut_%s_%s_%s.png'% (png, slice, time.time()), cj)
+                    # cv2.imwrite('e:/png_code_process/raw_png/adhesion/cut_%s_%s_%s.png' % (png, slice, time.time()), cj)
+                # else:
+                #     cv2.imwrite('e:/png_code_process/raw_png/cut_%s_%s_%s.png'% (png, slice, time.time()), cj)
                 slice += 1
                 # cv2.imshow('caijian', cj)
                 # cv2.waitKey(0)
@@ -270,12 +291,27 @@ slice = 0
 png = 0
 img_digit_list = []
 for pic in os.listdir('E:/vip_png/'):
-# 灰度二值化处理
+    # 灰度二值化处理
+    # x, y, w, h = cv2.boundingRect()
     img = cv2.imread('E:/vip_png/'+pic)
-    blur = cv2.blur(img, (5, 4))  # 验证码模糊
+    # blur = cv2.blur(img, (5, 4))  # 验证码模糊
+    # blur = cv2.medianBlur(blur,5)
+    blur = cv2.GaussianBlur(img,(5,5),0)
+    # blur = cv2.bilateralFilter(blur,9,75,75)
     img_gray = cv2.cvtColor(blur, cv2.COLOR_BGR2GRAY)  # 验证码灰度
-    ret, img_twovalue = cv2.threshold(img_gray, thresh=210, maxval=255, type=cv2.THRESH_BINARY)  # 验证码二值化
-
+    ret, img_twovalue = cv2.threshold(img_gray, thresh=215, maxval=255, type=cv2.THRESH_BINARY)  # 验证码二值化
+    # contours = cv2.findContours(img_twovalue, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    # print(contours)
+    # # 画出轮廓，-1,表示所有轮廓，画笔颜色为(0, 255, 0)，即Green，粗细为3
+    # cv2.drawContours(img, contours[0], -1, (0, 255, 0), 3)
+    #
+    # # 显示图片
+    # cv2.namedWindow("Contours", cv2.NORMAL_WINDOW)
+    # cv2.imshow("Contours", img)
+    #
+    # # 等待键盘输入
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
     projection(img_twovalue, png, slice)
     png += 1
     # dropf = DropFall(img_twovalue)
